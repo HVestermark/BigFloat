@@ -17,6 +17,10 @@ Other JavaScript libraries can be found at https://www.hvks.com/Numerical/js.htm
 
 Additional information is available at www.hvks.com
 
+# Changelog
+
+Describe releases
+
 # Contact information
 
 Email: hve@hvks.com
