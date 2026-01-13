@@ -19,10 +19,10 @@ Add this to your .HTML file:
 
 # Example
 
-  let a=parseBigFloat("1.234E+2");  // Default precision
-	let b=parseBigFloat("9.876E-2");  // Default precision        
-	let c=BigFloat.add(a,b); 
-  console.log(c.toString();
+  	let a=parseBigFloat("1.234E+2");  // Default precision<br>
+	let b=parseBigFloat("9.876E-2");  // Default precision<br>        
+	let c=BigFloat.add(a,b);<br> 
+ 	console.log(c.toString();<br>
 
 # External Resources
 
