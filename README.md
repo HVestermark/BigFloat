@@ -17,7 +17,8 @@ Quick start examples below
 Add this to your .HTML file:
 <script src="../Javascript/BigFloat.js"> </script>
 
-Example:
+# Example
+
   let a=parseBigFloat("1.234E+2");  // Default precision
 	let b=parseBigFloat("9.876E-2");  // Default precision        
 	let c=BigFloat.add(a,b); 
