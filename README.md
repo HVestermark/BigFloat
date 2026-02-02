@@ -34,6 +34,7 @@ Additional information is available at www.hvks.com
 
 # Contact information
 
+Web: www.hvks.com  
 Email: hve@hvks.com
 
 # BigFloat - Arbitrary Precision Floating-Point Library
@@ -445,23 +446,9 @@ console.log(result.toString());
 - **2.0** (2015-2020) - Decimal string representation, basic functions
 - **1.0** (2012) - Initial JavaScript implementation
 
-## License
-
-This project is released under the MIT License (see [LICENSE](LICENSE)).
-
-A commercial/sublicensing option is available for organizations or vendors that wish to obtain an alternative license permitting sale or sublicensing under different terms. For commercial licensing inquiries, please contact: https://www.hvks.com/license.html
-
-## Contact
-
-**Henrik Vestermark**  
-Email: hve@hvks.com  
-Website: https://hvks.com
-
 ## Acknowledgments
 
 BigFloat builds upon decades of research in arbitrary-precision arithmetic and numerical analysis. Special thanks to the broader computational mathematics community. Implementation inspired by MPFR, GMP, and IEEE 754 floating-point standards.
-
-The development of this library was accelerated through collaborative AI-assisted programming, combining domain expertise with rapid implementation capabilities.
 
 ## Contributing
 
