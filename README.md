@@ -41,7 +41,7 @@ Email: hve@hvks.com
 
 A high-performance JavaScript library for arbitrary-precision floating-point arithmetic with comprehensive mathematical functions.
 
-[![Version](https://img.shields.io/badge/version-3.0-blue.svg)](https://github.com/yourusername/bigfloat-library)
+[![Version](https://img.shields.io/badge/version-3.02-blue.svg)](https://github.com/yourusername/bigfloat-library)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![JavaScript](https://img.shields.io/badge/javascript-ES6+-yellow.svg)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 
