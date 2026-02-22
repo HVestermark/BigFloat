@@ -30,8 +30,40 @@
 //
 // Version	Author/Date		Description of changes
 // -------  ---------------	----------------------
+// 01.01	HVE/05-Oct-2012	Initial release
+// 01.02	HVE/19-Oct-2013	Add conversion casting to BigFloat Constructor function
+// 01.03	HVE/30-Aug-2018	Added Sqrt, PI, E and cleanup the code
+// 01.04	HVE/31-Aug-2018 Added LN2 & LN10 constants
+// 01.05	HVE/22-Sep-2018	Added floor(),ceil(),log(),exp(), pow()
+// 01.06	HVE/24-Sep-2018	Added sin(),cos(),tan()
+// 01.07	HVE/25-sep-2018	Added asin(),acos(),atan(),atan2()
+// 01.08	HVE/26-Sep-2018 Added sinh(),cosh(),tanh(),asinh(),acosh(),atanh(). Also replace many regular expression match,search with traditional .charAt() code.
+// 01.09	HVE/30-Sep-2018	Implemeneted fast addition and subtraction doing 14 digits at a time instead of 1 digit
+// 01.10	HVE/04-Oct-2018	Added Fast multiplication taking 14 digits at a time
+// 01.11 	HVE/14-Oct-2018	Change the internal format for BigFloat to speed up execution
+// 01.12	HVE/15-Oct-2018	Added speedup enhancement of Exp(x) if x is an integer
+// 01.13	HVE/16-Oct-2018 fixed an issue with floor and ceil with no fraction and an accuracy issue with div
+// 01.14	HVE/28-Oct-2018	Fixed several issue and also experiemnted with fast fourier multiplication
+// 01.15	HVE/20-Nov-2018	Fixed a bug in atan2()
+// 01.16	HVE/22-Nov-2018	Fixed an issue in calculating the needed number of reduction for arguments close to 1 and a bug in cos(x)
+// 01.17	HVE/23-Nov-2018 Improve accuracy for sin() and cos() taking into account the reduction factor
+// 01.18	HVE/29-Nov-2018	Speed up of 0*b, a*0, (1*10^n)*b, a*(1*10^n), 0/b, a/(1*10^n),a+0,0+b,a-0,0-b,sqrt(0),sqrt(1*10^2n)
+// 01.19	HVE/30-Nov-2018	Performance of parseBigFloat has been improved
+// 01.20	HVE/02-Dec-2018 Fixed an error if parseBigFloat was called with -0, now it returns correctly +0.0E+0. 
+// 01.21	HVE/02-Dec-2018	Fixed a bug that sometimes add &sub did not return the correct precision
+// 01.22	HVE/04-Dec-2018 Minor optimizations done
+// 01.23	HVE/11-Jul-2019 Fix a bug where domain error was from in acos(x) and asin(x) when x was ==1 or x==-1
+// 01.24	HVE/25-Sep-2019	Added internal multiplication methods, like: karatsuba, Toom-Cook3 and Schonage-Strassen with linear convolution
+// 01.25	HVE/03-Oct-2019	Fixed an issue where .toFixed() return -0 instead of +0
+// 01.26	HVE/08-Oct-2019	Added method .toInteger()
+// 01.27    HVE/02-Dec-2020 Added new Error() in throw statement
+// 01.28    HVE/08-Jan-2021 Added method toBigInt to convert BigFloat to aBigInt type
+// 01.29    HVE/13-Jan-2021 Fix an issue with toBigInt when nuumer of fraction digits was less than the expo number
+// 01.30    HVE/08-Feb-2021 Added BigFloat.trunc(), BigFloat.round()
+// 02.01    HVE/11-Sep-2022 Improved internally by optimizing the Decimal layout
 // 03.00	HVE/14-Nov-2025	Initial release
-// 03/01    HVE/22-Dec-2025 Added BigFloat.cmp(a,b) return [-1,0,1]
+// 03.01    HVE/22-Dec-2025 Added BigFloat.cmp(a,b) return [-1,0,1]
+// 03.02    HVE/22-Feb-2026 Improve accuracy for extreme values in sin,cos and tan
 //
 // End of Change Record
 //
@@ -3489,6 +3521,85 @@ BigFloat.prototype.exp = function() {
 //
 ////////////////////////////////////////////////////////////////
 
+
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Reduce argument to [0, 2π) with sufficient precision.
+///
+/// Mirrors the C++ float_precision::rangeReduction2PI() logic.
+/// The binary exponent is converted to extra decimal digits needed so that
+/// the subtraction  v - k·2π  retains full significance for large arguments.
+///
+/// @param  v        BigFloat input value (positive, non-zero, non-special).
+///                  The value is treated as read-only; a new BigFloat is returned.
+/// @param  p_target Target precision in decimal digits (usually x._precision).
+/// @returns         A new BigFloat in [0, 2π) at working precision prec1.
+///////////////////////////////////////////////////////////////////////////////
+BigFloat._rangeReduction2PI = function(v) {
+    // Extra digits needed to cancel leading digits of a large argument.
+    // _exponent is binary, so divide by log2(10) ≈ 3.321928 to get decimal digits.
+    const p_target = v._precision;
+    let prec1 = p_target;
+    if (v._exponent > 1) {
+        prec1 += Math.ceil(v._exponent / Math.log2(10));
+        if (p_target < 40) prec1 += 5;
+        prec1 += 5;
+    }
+
+    // Work on a copy at increased precision.
+    let w = new BigFloat(v);
+    w._precision=prec1;
+
+    // Quick-exit: already in [0, 2π).
+    const twoPiApprox = new BigFloat(6.28318530717958647692);
+    if (BigFloat.lessequal(w, twoPiApprox))
+        return w;
+
+    // Compute 2π at working precision.
+    let pi     = BigFloat.PI(prec1);
+    let twoPi  = BigFloat.mul(pi, new BigFloat(2n));
+
+    if (BigFloat.greater(w, twoPi)) {
+        let r = BigFloat.div(w, twoPi);
+        r = BigFloat.trunc(r);          // integer part (floor for positive)
+        w = BigFloat.sub(w, BigFloat.mul(r, twoPi));
+    }
+
+    // Numerical noise can push w slightly below 0.
+    const zero = new BigFloat(0n);
+    if (BigFloat.less(w, zero))
+        w = BigFloat.add(w, twoPi);
+
+    return w;  // w ∈ [0, 2π) at precision prec1
+};
+
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Reduce argument from [0, 2π) to [0, π).
+///
+/// Mirrors the C++ float_precision::rangeReductionPI() logic.
+/// Call AFTER _rangeReduction2PI().
+///
+/// @param  v     BigFloat in [0, 2π) (may be at elevated working precision).
+/// @returns      { reduced: BigFloat in [0, π),  signFlip: boolean }
+///               signFlip is true when the caller must negate the final result
+///               (i.e. the argument was in (π, 2π)).
+///////////////////////////////////////////////////////////////////////////////
+BigFloat._rangeReductionPI = function(v) {
+    const piApprox = new BigFloat(3.14159265358979323846);
+
+    // Quick-exit: already in [0, π).
+    if (BigFloat.lessequal(v, piApprox))
+        return [new BigFloat(v), false];
+
+    let pi = BigFloat.PI(v._precision);
+
+    if (BigFloat.greater(v, pi)) {
+        return [BigFloat.sub(v, pi), true];
+    }
+
+    // v is essentially equal to π (within rounding); treat as π → sin(π)=0 territory.
+    return [new BigFloat(v), false];
+};
+
 // Sine Function: sin(x)
 // Based on Henrik Vestermark's C++ implementation
 //
@@ -3512,100 +3623,62 @@ BigFloat.sin = function(x) {
     // Handle NaN and infinity
     if (x._special === SPECIAL_NAN) return new BigFloat(NaN);
     if (x._special === SPECIAL_INF) return new BigFloat(NaN);
-    
     // Handle zero: sin(0) = 0
     if (x._special === SPECIAL_ZERO || x._significand === 0n) 
         return new BigFloat(0n, x._precision, x._rounding);
-    
-    // Calculate working precision
-    let precision = x._precision + 2 + Math.ceil(Math.log10(x._precision));
-    
-    // Calculate optimal reduction factor
-    let k = 5 * Math.ceil(Math.log(2) * Math.log(precision));
-    precision += Math.floor(k / 4);
-    
-    // Adjust precision for extreme x values
-    if (x._exponent > 10) 
-        precision += Math.floor(x._exponent / 4);
-    
-    let v = new BigFloat(x);
-    v._precision = precision;
-    let sign = v._sign;
-    
-    if (sign < 0) 
-        v._sign = 1;  // Make positive
+        
+    let sign = x._sign;
+    let sign_flip=false;   
+    // ============================================================
+	// STAGE 1: Range Reduction mod 2π
+	// ============================================================
+	// Stage 1: Range reduction
+    let v = BigFloat.abs(x);
+	v=BigFloat._rangeReduction2PI(v);  // High precision, handles large x
+	[v,sign_flip] = BigFloat._rangeReductionPI(v, sign_flip);  
+	if (sign_flip) 
+		sign *= -1;
 
-   // v.dump2Console('var v-entry=',false); // DEBUG
-    
-    const c2 = new BigFloat(2n);
-    const c3 = new BigFloat(3n);
-    const c4 = new BigFloat(4n);   
-    let sinx = new BigFloat(0n, precision);
-    let pi = null;
-    
-    // Reduce argument to [0..2π] if needed
-    // Check if v > 2*3.14159265 (rough estimate)
-    const twoPiEstimate = new BigFloat(2 * Math.PI);
-    if (BigFloat.greater(v, twoPiEstimate)) {
-        // Calculate 2π with required precision
-        pi = BigFloat.PI(precision);
-        let twoPi = BigFloat.mul(pi, c2);
-        
-        if (BigFloat.greater(BigFloat.abs(v), twoPi)) {
-            let r = BigFloat.div(v, twoPi);
-            //r.dump2Console('var r=v/pi=',false); // DEBUG
-            r = BigFloat.trunc(r);  // Get integer part
-            //r.dump2Console('var trunc(r)',false); // DEBUG
-            v = BigFloat.sub(v, BigFloat.mul(r, twoPi));
-          // v.dump2Console('var v%2pi=',false); // DEBUG
-        }
-        
-        const zero = new BigFloat(0n);
-        if (BigFloat.less(v, zero)) 
-            v = BigFloat.add(v, twoPi);
-    }
-    
-    // Reduce further to [0..π]
-    const piEstimate = new BigFloat(Math.PI);
-    if (BigFloat.greater(v, piEstimate)) {
-        if (pi === null) {
-            // Increase reduction factor since we're in [π..2π] range
-            k++;
-        } else {
-            // We already calculated π, use it
-            if (BigFloat.greater(v, pi)) {
-                v = BigFloat.sub(v, pi);
-                sign *= -1;  // Change sign
-            }
-        }
-    }
-    
-    // Adjust k if v is small (avoid unnecessary reduction)
-    k += v._exponent;
-    k = Math.max(0, k);
-    
-    //v.dump2Console('var v=',false); // DEBUG
-    
+	// ============================================================
+	// STAGE 2: Core Computation (Trisection + Taylor)
+	// ============================================================
+   	// Now v is in [0, π], compute reduction factor k
+	let k = 5 + Math.ceil(Math.log(2) * Math.log(x._precision));
+	k = Math.ceil(2.0 * k / 3);
+	// Adjust k based on actual argument size
+	k += v._exponent;
+	k = Math.max(0, k); // esnure that we dont do negative reduction
+
+	// Precision for core computation
+	// Must account for error amplification by 3^k
+	let extra_bits = 0;
+	extra_bits += Math.floor(k * 1.585);  // Error amplification: k * log₂(3)
+	extra_bits += Math.ceil(Math.log2(x._precision / 3.0 * 5.0));  // Roundoff
+	extra_bits += 20;  // Guard bits
+	let prec2_bits = Math.floor(x._precision * Math.log2(10)) + extra_bits;
+	let prec2 = Math.floor(prec2_bits / Math.log2(10)) + 1;
+
+	// IMPORTANT: Reduce precision to p₂ (might be less than p₁!)
+	v._precision=prec2;
+    const c3 = new BigFloat(3n);   
+    let sinx = new BigFloat(0n, prec2);
+
     // Argument reduction using trisection: divide by 3^k
     let r = BigFloat.pow(c3, new BigFloat(k));
     v = BigFloat.div(v, r);
-    
     // v^2 for Taylor series
     let vsq = BigFloat.mul(v, v);
-    
     // Initialize Taylor series
     r = new BigFloat(v);
-    r._precision = precision;
     sinx = new BigFloat(v);
-    sinx._precision = precision;
-    
+
     // Taylor series: sin(x) = x - x^3/3! + x^5/5! - x^7/7! + ...
     let i = 3;
     let loopCnt = 1;
     
     for(;;++loopCnt) {
         // r *= -vsq / (i * (i-1))
-        let denominator = new BigFloat(i * (i - 1), precision);
+        let denominator = new BigFloat(i * (i - 1), prec2);
         r = BigFloat.mul(r, vsq);
         r = BigFloat.div(r, denominator);
         r._sign *= -1;  // Change sign
@@ -3620,6 +3693,7 @@ BigFloat.sin = function(x) {
     }
     
     // Reverse argument reduction using sin(3x) = 3*sin(x) - 4*sin(x)^3
+    const c4 = new BigFloat(4n);
     for (let j = 0; j < k; j++) {
         let sinxSq = BigFloat.mul(sinx, sinx);
         let term = BigFloat.mul(c4, sinxSq);
@@ -3647,30 +3721,70 @@ BigFloat.sin = function(x) {
 //   - cos(±Infinity) = NaN
 BigFloat.cos = function(x) {
     // Convert to BigFloat if needed
-    if (!(x instanceof BigFloat)) x = new BigFloat(x); 
+    if (!(x instanceof BigFloat)) x = new BigFloat(x);
     BigFloatStat.cos = (BigFloatStat.cos ?? 0) + 1;
-    
+
     // Handle NaN and infinity
     if (x._special === SPECIAL_NAN) return new BigFloat(NaN);
     if (x._special === SPECIAL_INF) return new BigFloat(NaN);
-    
-    const c1 = new BigFloat(1n);
-    
-    // Compute sin(x)
-    let sinx = BigFloat.sin(x);
-    // cos(x) = sqrt(1 - sin^2(x))
-    let sinxSq = BigFloat.mul(sinx, sinx);
-    let arg = BigFloat.sub(c1, sinxSq);
-    let cosx = BigFloat.sqrt(arg);
-    
-    // Determine sign of cos(x) using double precision approximation
-    let d = x.toNumber();
-    if (d !== null && Math.cos(d) < 0) 
-        cosx._sign = -1;
-    
-    // Round to same precision as argument
+
+    // cos is even: cos(-x) = cos(x), so work with |x|.
+    let v = BigFloat.abs(x);
+    // ============================================================
+    // STAGE 1: Range Reduction to [0, 2π)
+    // ============================================================
+    // _rangeReduction2PI expects a positive value and elevates precision
+    // internally to handle large arguments without catastrophic cancellation.
+    v = BigFloat._rangeReduction2PI(v);
+
+    // ============================================================
+    // STAGE 2: Quadrant sign determination and folding to [0, π/2]
+    // ============================================================
+    // Working precision: small guard on top of target.
+    const p_work = x._precision + 2;
+    v._precision = p_work;
+    const pi     = BigFloat.PI(p_work);
+    const pi_2   = BigFloat.div(pi, new BigFloat(2n));        // π/2
+    const tpi_2  = BigFloat.add(pi, pi_2);                    // 3π/2
+
+    // cos < 0 iff v ∈ (π/2, 3π/2)
+    const cos_negative = BigFloat.greater(v, pi_2) && BigFloat.less(v, tpi_2);
+
+    // Fold v to [0, π/2]:
+    //   v ∈ (π, 2π): reflect as 2π − v  → lands in [0, π)
+    //   v ∈ (π/2, π): reflect as π − v  → lands in [0, π/2]
+    if (BigFloat.greater(v, pi))
+        v = BigFloat.sub(BigFloat.mul(pi, new BigFloat(2n)), v);   // 2π − v
+    if (BigFloat.greater(v, pi_2))
+        v = BigFloat.sub(pi, v);                                    // π − v
+    // v is now in [0, π/2]
+
+    // ============================================================
+    // STAGE 3: Core computation
+    // ============================================================
+    // Near π/2: cos(v) = sin(π/2 − v) avoids cancellation in √(1−sin²v)
+    // when sin(v) ≈ 1.  Threshold 0.1 rad below π/2, matching C++.
+    const NEAR_PI_2_THRESHOLD = Math.PI / 2 - 0.1;   // ≈ 1.4708
+    const v_dbl = v.toNumber();
+    let cosx;
+
+    if (v_dbl > NEAR_PI_2_THRESHOLD) {
+        // cos(v) = sin(π/2 − v)  — argument is small, no cancellation
+        const arg = BigFloat.sub(pi_2, v);
+        cosx = BigFloat.sin(arg);
+    } else {
+        // cos(v) = √(1 − sin²(v))  — safe since sin(v) is well away from ±1
+        const sinv  = BigFloat.sin(v);
+        const sinvSq = BigFloat.mul(sinv, sinv);
+        cosx = BigFloat.sqrt(BigFloat.sub(new BigFloat(1n), sinvSq));
+    }
+
+    // Apply quadrant sign
+    if (cos_negative) cosx._sign = -1;
+
+    // Round to requested precision and return.
     cosx._precision = x._precision;
-    cosx._rounding = x._rounding;
+    cosx._rounding  = x._rounding;
     return cosx._normalize();
 };
 
@@ -3683,7 +3797,114 @@ BigFloat.cos = function(x) {
 //   - tan(3π/2) = domain error (undefined)
 //   - tan(NaN) = NaN
 //   - tan(±Infinity) = NaN
+// Tangent Function: tan(x)
+// Based on Henrik Vestermark's C++ implementation
+//
+// Algorithm:
+//   1) Reduce |x| to [0, 2π) using _rangeReduction2PI
+//   2) Near π/2 or 3π/2: tan(π/2 + δ) = −1/tan(δ)  to avoid cancellation
+//   3) Elsewhere: tan(v) = sin(v) / sqrt(1 − sin²(v)), cos sign from quadrant
+//   4) Restore original sign (tan is odd: tan(−x) = −tan(x))
+//
+// Special cases:
+//   - tan(0) = 0
+//   - tan(π/2) = tan(3π/2) = NaN  (singularity)
+//   - tan(NaN) = NaN
+//   - tan(±Infinity) = NaN
 BigFloat.tan = function(x) {
+    // Convert to BigFloat if needed
+    if (!(x instanceof BigFloat)) x = new BigFloat(x);
+    BigFloatStat.tan = (BigFloatStat.tan ?? 0) + 1;
+
+    // Handle NaN and infinity
+    if (x._special === SPECIAL_NAN) return new BigFloat(NaN);
+    if (x._special === SPECIAL_INF) return new BigFloat(NaN);
+
+    // Handle zero: tan(0) = 0
+    if (x._special === SPECIAL_ZERO || x._significand === 0n)
+        return new BigFloat(0n, x._precision, x._rounding);
+
+    // tan is odd: work with |x|, restore sign at end
+    const sign = x._sign;
+    let v = BigFloat.abs(x);
+
+    // ============================================================
+    // STAGE 1: Range Reduction to [0, 2π)
+    // ============================================================
+    v = BigFloat._rangeReduction2PI(v);
+
+    // ============================================================
+    // STAGE 2: Core Computation
+    // ============================================================
+    // Adaptive working precision — tan has worse error amplification
+    // than sin/cos (1/cos³ vs 1/cos²), so needs more guard digits.
+    const p_target = x._precision;
+    let extra;
+    if (p_target < 40)       extra = Math.floor(p_target / 4) + 10;  // ~35% extra
+    else if (p_target < 100) extra = Math.floor(p_target / 10) + 5;  // ~15% extra
+    else                     extra = 5;                                // fixed guard
+    const prec2 = p_target + extra;
+    v._precision = prec2;
+
+    const pi     = BigFloat.PI(prec2);
+    const pi_2   = BigFloat.div(pi, new BigFloat(2n));       // π/2
+    const pi_3_2 = BigFloat.mul(pi_2, new BigFloat(3n));     // 3π/2
+    const c1     = new BigFloat(1n);
+
+    // Exact singularities
+    if (BigFloat.equal(v, pi_2) || BigFloat.equal(v, pi_3_2))
+        return new BigFloat(NaN);
+
+    // Detect proximity to π/2 or 3π/2 via double arithmetic (|v % π − π/2| < 0.1)
+    const v_mod_pi  = v.toNumber() % Math.PI;
+    const near_pi_2 = Math.abs(v_mod_pi - Math.PI / 2) < 0.1;
+
+    let tanx;
+    if (near_pi_2) {
+        // tan(π/2 + δ) = −cot(δ) = −1/tan(δ)
+        // δ = v − π/2; if |δ| > π/2 then v is near 3π/2 so δ = v − 3π/2
+        let delta = BigFloat.sub(v, pi_2);
+        if (BigFloat.greater(BigFloat.abs(delta), pi_2))
+            delta = BigFloat.sub(v, pi_3_2);
+
+        const sin_d = BigFloat.sin(delta);
+        const tan_d = BigFloat.div(sin_d,
+                          BigFloat.sqrt(BigFloat.sub(c1, BigFloat.mul(sin_d, sin_d))));
+
+        // tanx = −1 / tan_d
+        // Note: BigFloat.div always returns positive magnitude, so we derive the
+        // result sign explicitly: sign(−1/tan_d) = −sign(tan_d)
+        const tan_d_sign = tan_d._sign;      // +1 or -1
+        tanx = BigFloat.div(c1, tan_d);      // |1/tan_d|, always positive from div
+        tanx._sign = -tan_d_sign;            // apply correct sign of −1/tan_d
+    } else {
+        // tan(v) = sin(v) / cos(v) = sin(v) / sqrt(1 − sin²(v))
+        // cos is positive in [0, π/2) ∪ (3π/2, 2π), negative in (π/2, 3π/2)
+        const sinv = BigFloat.sin(v);
+        const cosv = BigFloat.sqrt(BigFloat.sub(c1, BigFloat.mul(sinv, sinv)));
+        if (BigFloat.greater(v, pi_2) && BigFloat.less(v, pi_3_2))
+            cosv._sign = -1;
+        tanx = BigFloat.div(sinv, cosv);
+    }
+
+    // Restore original sign (tan is odd: tan(−x) = −tan(x))
+    if (sign < 0) tanx._sign *= -1;
+
+    tanx._precision = x._precision;
+    tanx._rounding  = x._rounding;
+    return tanx._normalize();
+};
+
+// Tangent Function: tan(x) = sin(x) / sqrt(1 - sin(x)^2)
+// Based on Henrik Vestermark's C++ implementation
+//
+// Special cases:
+//   - tan(0) = 0
+//   - tan(π/2) = domain error (undefined)
+//   - tan(3π/2) = domain error (undefined)
+//   - tan(NaN) = NaN
+//   - tan(±Infinity) = NaN
+BigFloat.tanold = function(x) {
     // Convert to BigFloat if needed
     if (!(x instanceof BigFloat)) x = new BigFloat(x);    
     BigFloatStat.tan = (BigFloatStat.tan ?? 0) + 1;
@@ -3691,7 +3912,6 @@ BigFloat.tan = function(x) {
     // Handle NaN and infinity
     if (x._special === SPECIAL_NAN) return new BigFloat(NaN);
     if (x._special === SPECIAL_INF) return new BigFloat(NaN);
-    
     // Handle zero: tan(0) = 0
     if (x._special === SPECIAL_ZERO || x._significand === 0n) 
         return new BigFloat(0n, x._precision, x._rounding);
